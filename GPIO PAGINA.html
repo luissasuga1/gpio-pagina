@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estacionamiento inteligente · Monitor en tiempo real</title>
+<style>
+:root{
+  --bg:#f3f6f8; --card:#ffffff; --ink:#15232b; --muted:#5b6e78; --line:#d5dee3;
+  --accent:#1d7a4a; --accent-ink:#ffffff; --grid:#e3eaee; --curve:#2b7bdc;
+  --libre:#1d7a4a; --acerca:#b7791f; --precau:#c2570c; --detener:#c0392b;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#10181d; --card:#1a252c; --ink:#e4ecef; --muted:#93a6af; --line:#2d3c46;
+    --accent:#45b07f; --accent-ink:#0c1a13; --grid:#26343d; --curve:#5aa2f0;
+    --libre:#45b07f; --acerca:#e0b04a; --precau:#f08a4b; --detener:#f06a5b; }
+}
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; line-height:1.45}
+header{max-width:960px; margin:0 auto; padding:22px 18px 6px; display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; justify-content:space-between}
+h1{margin:0; font-size:1.5rem; line-height:1.15}
+header p{margin:.25rem 0 0; color:var(--muted); font-size:.95rem}
+.badge{display:inline-flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; font-weight:600; font-size:.9rem; border:1px solid var(--line); background:var(--card)}
+.badge i{width:10px; height:10px; border-radius:50%; background:var(--detener)}
+.badge.on i{background:var(--libre)}
+main{max-width:960px; margin:0 auto; padding:10px 18px 40px; display:grid; gap:16px}
+.aviso{max-width:960px; margin:8px auto 0; padding:12px 16px; border-radius:10px; background:#fff3dc; color:#6b4300; font-size:.95rem}
+.aviso[hidden]{display:none}
+.cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px}
+.card[hidden]{display:none}
+.card,.panel{background:var(--card); border:1px solid var(--line); border-radius:12px}
+.card{padding:14px 16px}
+.lbl{display:block; color:var(--muted); font-size:.82rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em}
+.card strong{display:block; margin-top:4px; font-size:2.2rem; line-height:1.1}
+#vEstado{font-size:1.9rem}
+.card small{font-size:.9rem; font-weight:500; color:var(--muted)}
+#cardEstado strong{color:var(--ink)}
+.panel{padding:16px}
+.panel h2{margin:0 0 10px; font-size:1.05rem}
+canvas{display:block; width:100%; height:240px}
+.fila{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px}
+button{font:inherit; font-weight:600; color:var(--accent-ink); background:var(--accent); border:0; border-radius:9px; padding:10px 16px; cursor:pointer}
+button.sec{background:transparent; color:var(--ink); border:1px solid var(--line)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--curve); outline-offset:2px}
+input[type=text]{font:inherit; flex:1 1 220px; min-width:0; padding:10px 12px; border-radius:9px; border:1px solid var(--line); background:var(--bg); color:var(--ink)}
+.nota{margin:.6rem 0 0; color:var(--muted); font-size:.88rem}
+#toast{position:fixed; left:50%; bottom:22px; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:9px; font-size:.92rem; opacity:0; pointer-events:none; transition:opacity .2s; max-width:90vw}
+#toast.ver{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Estacionamiento inteligente</h1>
+    <p>Distancia en tiempo real, medida con el sensor VL6180X de una Raspberry Pi</p>
+  </div>
+  <span class="badge" id="badge"><i></i><span id="badgeTxt">Esperando datos</span></span>
+</header>
+<div class="aviso" id="aviso" hidden>Falta pegar la URL de Firebase en <b>DB_URL</b>, al inicio del script de este archivo.</div>
+
+<main>
+  <section class="cards" aria-label="Lecturas actuales">
+    <div class="card" id="cardEstado"><span class="lbl">Estado</span><strong id="vEstado">—</strong></div>
+    <div class="card"><span class="lbl">Distancia</span><strong><span id="vDist">—</span> <small>mm</small></strong></div>
+  </section>
+
+  <section class="panel">
+    <h2>Distancia del último minuto</h2>
+    <canvas id="grafica" role="img" aria-label="Gráfica de la distancia en tiempo real"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>Enviar una instrucción al LCD</h2>
+    <div class="fila">
+      <button id="btnSaludo">Saludar en el LCD</button>
+      <button class="sec" id="btnLuzOn">Encender luz del LCD</button>
+      <button class="sec" id="btnLuzOff">Apagar luz del LCD</button>
+    </div>
+    <div class="fila">
+      <input type="text" id="txtMensaje" maxlength="32" placeholder="Escribe un mensaje (máximo 32 caracteres)" aria-label="Mensaje para el LCD">
+      <button id="btnMensaje">Enviar mensaje</button>
+    </div>
+    <p class="nota">El LCD tiene 2 líneas de 16 caracteres y no muestra acentos ni la ñ. El mensaje se ve 5 segundos. La luz de fondo solo responde si el adaptador del LCD tiene puesto su jumper.</p>
+  </section>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+// ---------------- CONFIGURACION ----------------
+const DB_URL = "https://proyecto-payes-default-rtdb.firebaseio.com"; // sin "/" al final
+const RUTA = "estacionamiento";
+
+// <logica>
+function aplicarEvento(estado, tipo, mensaje) {
+  const path = mensaje.path, data = mensaje.data;
+  if (path === '/') {
+    if (tipo === 'put') return (data && typeof data === 'object') ? Object.assign({}, data) : {};
+    const nuevo = Object.assign({}, estado);
+    if (data && typeof data === 'object') {
+      for (const k of Object.keys(data)) {
+        if (data[k] === null) delete nuevo[k]; else nuevo[k] = data[k];
+      }
+    }
+    return nuevo;
+  }
+  const nuevo = Object.assign({}, estado);
+  const clave = path.replace(/^\//, '').split('/')[0];
+  if (data === null) delete nuevo[clave]; else nuevo[clave] = data;
+  return nuevo;
+}
+function colorEstado(texto) {
+  if (texto === 'LIBRE') return 'var(--libre)';
+  if (texto === 'ACERCANDOSE') return 'var(--acerca)';
+  if (texto === 'PRECAUCION') return 'var(--precau)';
+  if (texto === 'DETENERSE!') return 'var(--detener)';
+  return 'var(--ink)';
+}
+function formatear(v, dec) {
+  return (typeof v === 'number' && isFinite(v)) ? v.toFixed(dec) : '—';
+}
+function partirMensaje(texto) {
+  const t = String(texto).trim().replace(/\s+/g, ' ');
+  if (t.length <= 16) return { linea1: t, linea2: '' };
+  let corte = t.lastIndexOf(' ', 16);   // corta en un espacio para no partir palabras
+  if (corte <= 0) corte = 16;
+  return { linea1: t.slice(0, corte), linea2: t.slice(corte).trim().slice(0, 16) };
+}
+// </logica>
+
+const base = DB_URL.replace(/\/+$/, '') + '/' + RUTA;
+const $ = id => document.getElementById(id);
+let datos = {};
+let ultimoEvento = 0;
+const puntos = [];            // { t, d }
+const VENTANA_MS = 60000;
+
+if (DB_URL.indexOf('PEGA_AQUI') !== -1) $('aviso').hidden = false;
+
+// ---------------- TIEMPO REAL (Server-Sent Events de Firebase) ----------------
+function refrescar() {
+  $('vDist').textContent = formatear(datos.distancia, 0);
+  $('vEstado').textContent = datos.estado || '—';
+  $('vEstado').style.color = colorEstado(datos.estado);
+  if (typeof datos.distancia === 'number') {
+    puntos.push({ t: Date.now(), d: datos.distancia });
+  }
+}
+if (DB_URL.indexOf('PEGA_AQUI') === -1) {
+  const fuente = new EventSource(base + '/lecturas.json');
+  ['put', 'patch'].forEach(tipo => {
+    fuente.addEventListener(tipo, e => {
+      try {
+        datos = aplicarEvento(datos, tipo, JSON.parse(e.data));
+        ultimoEvento = Date.now();
+        refrescar();
+      } catch (err) { console.error(err); }
+    });
+  });
+}
+
+// ---------------- GRAFICA ----------------
+function dibujar() {
+  const c = $('grafica');
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue('--muted').trim(), grid = css.getPropertyValue('--grid').trim(), curva = css.getPropertyValue('--curve').trim();
+  const ahora = Date.now();
+  while (puntos.length && puntos[0].t < ahora - VENTANA_MS) puntos.shift();
+  const mx = puntos.reduce((m, p) => Math.max(m, p.d), 0);
+  const ymax = Math.max(120, Math.ceil(mx / 20) * 20 + 20);
+  const L = 58, R = 10, T = 8, B = 24, pw = w - L - R, ph = h - T - B;
+  g.font = '12px system-ui, sans-serif'; g.fillStyle = ink; g.strokeStyle = grid; g.lineWidth = 1;
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  const paso = ymax > 200 ? 100 : 40;
+  for (let v = 0; v <= ymax; v += paso) {
+    const y = T + ph - (v / ymax) * ph;
+    g.beginPath(); g.moveTo(L, y); g.lineTo(L + pw, y); g.stroke();
+    g.fillText(v + ' mm', L - 6, y);
+  }
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  g.fillText('hace 60 s', L + 24, T + ph + 6);
+  g.fillText('ahora', L + pw - 14, T + ph + 6);
+  if (puntos.length < 2) return;
+  g.strokeStyle = curva; g.lineWidth = 2; g.lineJoin = 'round'; g.beginPath();
+  puntos.forEach((p, i) => {
+    const x = L + ((p.t - (ahora - VENTANA_MS)) / VENTANA_MS) * pw;
+    const y = T + ph - (p.d / ymax) * ph;
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  });
+  g.stroke();
+}
+setInterval(() => {
+  dibujar();
+  const conectada = Date.now() - ultimoEvento < 4000;
+  $('badge').classList.toggle('on', conectada);
+  $('badgeTxt').textContent = conectada ? 'Raspberry Pi conectada' : 'Sin datos de la Raspberry Pi';
+}, 250);
+
+// ---------------- ORDENES A LA RASPBERRY PI ----------------
+let temporizador;
+function aviso(texto, error) {
+  const t = $('toast');
+  t.textContent = texto; t.classList.add('ver');
+  t.style.background = error ? 'var(--detener)' : 'var(--ink)';
+  clearTimeout(temporizador);
+  temporizador = setTimeout(() => t.classList.remove('ver'), 2600);
+}
+async function enviar(orden) {
+  if (DB_URL.indexOf('PEGA_AQUI') !== -1) { aviso('Falta la URL de Firebase', true); return; }
+  orden.id = Date.now();
+  try {
+    const r = await fetch(base + '/comando.json', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(orden)
+    });
+    if (!r.ok) throw new Error('error ' + r.status);
+    aviso('Instrucción enviada');
+  } catch (err) {
+    aviso('No se pudo enviar: ' + err.message, true);
+  }
+}
+$('btnSaludo').addEventListener('click', () =>
+  enviar({ tipo: 'mensaje', linea1: 'HOLA DESDE LA', linea2: 'PAGINA WEB' }));
+$('btnLuzOn').addEventListener('click', () => enviar({ tipo: 'luz', valor: true }));
+$('btnLuzOff').addEventListener('click', () => enviar({ tipo: 'luz', valor: false }));
+function enviarMensaje() {
+  const campo = $('txtMensaje');
+  if (!campo.value.trim()) { aviso('Escribe un mensaje primero', true); return; }
+  enviar(Object.assign({ tipo: 'mensaje' }, partirMensaje(campo.value)));
+  campo.value = '';
+}
+$('btnMensaje').addEventListener('click', enviarMensaje);
+$('txtMensaje').addEventListener('keydown', e => { if (e.key === 'Enter') enviarMensaje(); });
+dibujar();
+</script>
+</body>
+</html>
