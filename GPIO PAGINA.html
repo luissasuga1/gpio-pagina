@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Estacionamiento inteligente · Monitor en tiempo real</title>
+<title>GPIO PAGINA</title>
 <style>
 :root{
   --bg:#f3f6f8; --card:#ffffff; --ink:#15232b; --muted:#5b6e78; --line:#d5dee3;
@@ -52,8 +52,8 @@ input[type=text]{font:inherit; flex:1 1 220px; min-width:0; padding:10px 12px; b
 <body>
 <header>
   <div>
-    <h1>Estacionamiento inteligente</h1>
-    <p>Distancia en tiempo real, medida con el sensor VL6180X de una Raspberry Pi</p>
+    <h1>GPIO PAGINA</h1>
+    <p>Estacionamiento inteligente: distancia, temperatura, humedad y presión en tiempo real desde una Raspberry Pi</p>
   </div>
   <span class="badge" id="badge"><i></i><span id="badgeTxt">Esperando datos</span></span>
 </header>
@@ -62,7 +62,10 @@ input[type=text]{font:inherit; flex:1 1 220px; min-width:0; padding:10px 12px; b
 <main>
   <section class="cards" aria-label="Lecturas actuales">
     <div class="card" id="cardEstado"><span class="lbl">Estado</span><strong id="vEstado">—</strong></div>
-    <div class="card"><span class="lbl">Distancia</span><strong><span id="vDist">—</span> <small>mm</small></strong></div>
+    <div class="card"><span class="lbl">Distancia (VL6180X)</span><strong><span id="vDist">—</span> <small>mm</small></strong></div>
+    <div class="card"><span class="lbl">Temperatura (AHT20)</span><strong><span id="vTemp">—</span> <small>°C</small></strong></div>
+    <div class="card"><span class="lbl">Humedad (AHT20)</span><strong><span id="vHum">—</span> <small>%</small></strong></div>
+    <div class="card"><span class="lbl">Presión (BMP280)</span><strong><span id="vPres">—</span> <small>hPa</small></strong></div>
   </section>
 
   <section class="panel">
@@ -140,6 +143,9 @@ if (DB_URL.indexOf('PEGA_AQUI') !== -1) $('aviso').hidden = false;
 // ---------------- TIEMPO REAL (Server-Sent Events de Firebase) ----------------
 function refrescar() {
   $('vDist').textContent = formatear(datos.distancia, 0);
+  $('vTemp').textContent = formatear(datos.temperatura, 1);
+  $('vHum').textContent = formatear(datos.humedad, 1);
+  $('vPres').textContent = formatear(datos.presion, 1);
   $('vEstado').textContent = datos.estado || '—';
   $('vEstado').style.color = colorEstado(datos.estado);
   if (typeof datos.distancia === 'number') {
